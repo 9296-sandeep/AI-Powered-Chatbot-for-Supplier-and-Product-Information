@@ -1,0 +1,84 @@
+from fastapi import FastAPI, Query
+from pydantic import BaseModel
+from typing import List, Optional
+import psycopg2
+import os
+
+app = FastAPI()
+
+# Database connection
+conn = psycopg2.connect(
+    dbname="recipesdb", user="postgres", password="password", host="localhost"
+)
+
+@app.get("/api/recipes")
+def get_recipes(page: int = 1, limit: int = 10):
+    offset = (page - 1) * limit
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) FROM recipes")
+    total = cur.fetchone()[0]
+
+    cur.execute("""
+        SELECT id, title, cuisine, rating, prep_time, cook_time, total_time, description, nutrients, serves
+        FROM recipes
+        ORDER BY rating DESC NULLS LAST
+        LIMIT %s OFFSET %s
+    """, (limit, offset))
+    rows = cur.fetchall()
+
+    data = []
+    for r in rows:
+        data.append({
+            "id": r[0],
+            "title": r[1],
+            "cuisine": r[2],
+            "rating": r[3],
+            "prep_time": r[4],
+            "cook_time": r[5],
+            "total_time": r[6],
+            "description": r[7],
+            "nutrients": r[8],
+            "serves": r[9]
+        })
+
+    return {"page": page, "limit": limit, "total": total, "data": data}
+
+
+@app.get("/api/recipes/search")
+def search_recipes(
+    title: Optional[str] = None,
+    cuisine: Optional[str] = None,
+    rating: Optional[str] = None,      # e.g. ">=4.5"
+    total_time: Optional[str] = None,  # e.g. "<=30"
+    calories: Optional[str] = None     # e.g. "<=400"
+):
+    query = "SELECT id, title, cuisine, rating, prep_time, cook_time, total_time, description, nutrients, serves FROM recipes WHERE 1=1"
+    params = []
+
+    if title:
+        query += " AND title ILIKE %s"
+        params.append(f"%{title}%")
+    if cuisine:
+        query += " AND cuisine ILIKE %s"
+        params.append(f"%{cuisine}%")
+    if rating:
+        query += f" AND rating {rating[0:2].replace('=','')} %s"
+        params.append(float(rating.strip("<>=")))
+    if total_time:
+        query += f" AND total_time {total_time[0:2].replace('=','')} %s"
+        params.append(int(total_time.strip("<>=")))
+    if calories:
+        query += f" AND (nutrients->>'calories')::int {calories[0:2].replace('=','')} %s"
+        params.append(int(calories.strip("<>=")))
+
+    cur = conn.cursor()
+    cur.execute(query, params)
+    rows = cur.fetchall()
+
+    return {"data": [
+        {
+            "id": r[0], "title": r[1], "cuisine": r[2], "rating": r[3],
+            "prep_time": r[4], "cook_time": r[5], "total_time": r[6],
+            "description": r[7], "nutrients": r[8], "serves": r[9]
+        } for r in rows
+    ]}
