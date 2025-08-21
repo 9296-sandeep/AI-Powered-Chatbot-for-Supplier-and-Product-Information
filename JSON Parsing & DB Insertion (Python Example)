@@ -1,0 +1,32 @@
+import json
+import psycopg2
+import math
+
+def is_valid_number(value):
+    try:
+        f = float(value)
+        return f if not math.isnan(f) else None
+    except:
+        return None
+
+def insert_recipes(json_file, conn):
+    with open(json_file, "r") as f:
+        data = json.load(f)
+
+    cur = conn.cursor()
+    for recipe in data:
+        cur.execute("""
+            INSERT INTO recipes (cuisine, title, rating, prep_time, cook_time, total_time, description, nutrients, serves)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (
+            recipe.get("cuisine"),
+            recipe.get("title"),
+            is_valid_number(recipe.get("rating")),
+            is_valid_number(recipe.get("prep_time")),
+            is_valid_number(recipe.get("cook_time")),
+            is_valid_number(recipe.get("total_time")),
+            recipe.get("description"),
+            json.dumps(recipe.get("nutrients")),
+            recipe.get("serves"),
+        ))
+    conn.commit()
